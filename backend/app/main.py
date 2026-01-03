@@ -4,20 +4,20 @@ from pydantic import BaseModel
 from typing import List, Optional
 from enum import Enum
 
-app = FastAPI()
+app = FastAPI(title="Smart Task Tracker API", version="1.0.0")
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------- HEALTH CHECK ----------------
+# Health check
 @app.get("/healthz")
-def health_check():
+def healthz():
     return {"ok": True}
 
 # ---------------- ENUMS ----------------
@@ -42,7 +42,7 @@ class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     status: Status = Status.todo
-    priority: Priority = Priority.low
+    priority: Priority = Priority.med
 
 class Task(TaskCreate):
     id: int
@@ -67,7 +67,6 @@ task_id_seq = 1
 def list_projects():
     return projects
 
-
 @app.post("/api/projects", response_model=Project)
 def create_project(payload: ProjectCreate):
     global project_id_seq
@@ -84,7 +83,6 @@ def list_tasks(project_id: int, status: Optional[Status] = None):
         result = [t for t in result if t["status"] == status]
     return result
 
-
 @app.post("/api/projects/{project_id}/tasks", response_model=Task)
 def create_task(project_id: int, payload: TaskCreate):
     global task_id_seq
@@ -95,25 +93,17 @@ def create_task(project_id: int, payload: TaskCreate):
     task = {
         "id": task_id_seq,
         "project_id": project_id,
-        **payload.dict()
+        **payload.model_dump()
     }
     tasks.append(task)
     task_id_seq += 1
     return task
 
-
-class TaskUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    status: Optional[Status] = None
-    priority: Optional[Priority] = None
-
 @app.patch("/api/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, payload: TaskUpdate):
+def update_task(task_id: int, payload: TaskCreate):
     for task in tasks:
         if task["id"] == task_id:
-            update_data = payload.dict(exclude_unset=True)
-            task.update(update_data)
+            task.update(payload.model_dump())
             return task
     raise HTTPException(status_code=404, detail="Task not found")
 
@@ -122,7 +112,13 @@ def update_task(task_id: int, payload: TaskUpdate):
 def ai_intake(payload: AIIntake):
     text = payload.input.lower()
 
-    priority = Priority.high if "urgent" in text else Priority.low
-    title = payload.input.split(".")[0][:50]
+    if "urgent" in text or "asap" in text:
+        priority = Priority.high
+    elif "later" in text or "someday" in text:
+        priority = Priority.low
+    else:
+        priority = Priority.med
+
+    title = payload.input.split(".")[0][:80].strip()
 
     return {"title": title, "priority": priority}
